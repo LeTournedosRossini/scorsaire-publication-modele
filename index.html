@@ -4,11 +4,77 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mes partitions</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem}</style>
+<style>
+:root{color-scheme:light dark}
+body{font:16px/1.5 system-ui,sans-serif;max-width:44rem;margin:2rem auto;padding:0 1rem}
+h1{margin:0 0 .5rem}
+input{width:100%;box-sizing:border-box;font:inherit;padding:.5rem;margin:.5rem 0 1rem}
+details{margin:.25rem 0 .25rem 0}
+details details{margin-left:1.25rem}
+summary{cursor:pointer;font-weight:600;padding:.25rem 0}
+ul{list-style:none;margin:0 0 .5rem 1.25rem;padding:0}
+li{padding:.2rem 0;display:flex;gap:.75rem;align-items:baseline}
+li a:first-child{font-size:1.05rem}
+.edit{font-size:.8rem;opacity:.65}
+.note{opacity:.7;font-size:.9rem}
+</style>
 </head>
 <body>
 <h1>Mes partitions</h1>
-<p>Ce dépôt est prêt. Ajoutez vos pages avec Scorsaire : <em>Fichier › Exporter › Publier sur GitHub…</em></p>
-<p>This repository is ready. Add your pages with Scorsaire: <em>File › Export › Publish on GitHub…</em></p>
+<p class="note" id="hint">Ajoutez vos pages avec Scorsaire : <em>Fichier › Exporter › Publier sur GitHub…</em> — Add your pages with Scorsaire: <em>File › Export › Publish on GitHub…</em></p>
+<input id="q" type="search" placeholder="Rechercher / Search" hidden>
+<div id="list"></div>
+<script>
+// Lists the .html pages of this repository (public GitHub API, no token) and links to each one.
+(async () => {
+  const host = location.hostname, path = location.pathname.split('/').filter(Boolean);
+  const m = host.match(/^(.+)\.github\.io$/);
+  const list = document.getElementById('list'), q = document.getElementById('q'), hint = document.getElementById('hint');
+  if (!m) { list.textContent = 'Ouvrez cette page depuis son adresse github.io. / Open this page from its github.io address.'; return; }
+  const owner = m[1], repo = path.length && !/\.html?$/.test(path[0]) ? path[0] : `${owner}.github.io`;
+  let tree;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`);
+    if (!r.ok) throw new Error(r.status);
+    tree = (await r.json()).tree;
+  } catch (e) { list.textContent = 'Liste indisponible pour le moment. / List unavailable right now.'; return; }
+  const base = repo === `${owner}.github.io` ? `https://${host}/` : `https://${host}/${repo}/`;
+  const pages = tree.filter((f) => f.type === 'blob' && /\.html?$/i.test(f.path) && !/(^|\/)(index|404)\.html?$/i.test(f.path)).map((f) => {
+    const parts = f.path.split('/'), file = parts.pop();
+    const title = decodeURIComponent(file).replace(/\.html?$/i, '').replace(/-(synchro|page|video)$/i, '').replace(/[-_]+/g, ' ');
+    return { dir: parts, title, kind: (file.match(/-(synchro|page|video)\.html?$/i) || [])[1] || '', url: base + f.path.split('/').map(encodeURIComponent).join('/'), edit: `https://github.com/${owner}/${repo}/blob/main/${f.path}` };
+  }).sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+  if (!pages.length) return;
+  hint.hidden = true; q.hidden = false;
+  const render = () => {
+    const needle = q.value.trim().toLowerCase(), root = {};
+    for (const p of pages) {
+      if (needle && !(p.title + ' ' + p.dir.join('/')).toLowerCase().includes(needle)) continue;
+      let node = root; for (const d of p.dir) node = (node[d] ??= {});
+      (node['\0'] ??= []).push(p);
+    }
+    const build = (node, open) => {
+      const frag = document.createDocumentFragment();
+      if (node['\0']) {
+        const ul = document.createElement('ul');
+        for (const p of node['\0']) {
+          const li = document.createElement('li'), a = document.createElement('a'), e = document.createElement('a');
+          a.href = p.url; a.textContent = p.title + (p.kind ? ` (${p.kind})` : '');
+          e.href = p.edit; e.textContent = 'modifier / edit'; e.className = 'edit'; e.target = '_blank'; e.rel = 'noopener';
+          li.append(a, e); ul.append(li);
+        }
+        frag.append(ul);
+      }
+      for (const k of Object.keys(node).filter((k) => k !== '\0').sort((a, b) => a.localeCompare(b))) {
+        const d = document.createElement('details'), s = document.createElement('summary');
+        d.open = open || !!needle; s.textContent = k; d.append(s, build(node[k], false)); frag.append(d);
+      }
+      return frag;
+    };
+    list.replaceChildren(build(root, true));
+  };
+  q.addEventListener('input', render); render();
+})();
+</script>
 </body>
 </html>
